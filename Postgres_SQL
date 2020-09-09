@@ -1,0 +1,120 @@
+SELECT *
+FROM (
+         SELECT event_airlineiatacode,
+                event_category,
+                event_action,
+                event_departureairportiatacode,
+                event_arrivalairportiatacode,
+                event_journeytype,
+                event_departuredate,
+                event_returndate,
+                event_totalprice,
+                event_currencycode,
+                event_totalpriceusd,
+                event_emcid,
+                event_siteedition,
+                event_timestamp,
+                event_date,
+                airlineiatacode,
+                departureairportiatacode,
+                arrivalairportiatacode,
+                journeytype,
+                departuredate,
+                returndate,
+                totalpriceusd,
+                emcid,
+                siteedition,
+                farenettimestamp,
+                farenetdate,
+                (farenettimestamp - event_timestamp):: VARCHAR(20)     AS time_diff,
+                ROW_NUMBER()
+                OVER (
+                    PARTITION BY airlineiatacode, event_category, event_action, event_departureairportiatacode, event_arrivalairportiatacode,
+                        event_departuredate, event_returndate, event_totalprice, event_currencycode, event_totalpriceusd,
+                        event_journeyType, event_siteedition,event_emcid, event_timestamp
+                    ORDER BY (farenettimestamp - event_timestamp) ASC) AS row_num
+         FROM (
+                  (SELECT DISTINCT airline_code                                     AS event_airlineiatacode,
+                                   event_category,
+                                   event_action,
+                                   LEFT(json_extract_path_text(variables, 'r'), 3)  AS event_departureairportiatacode,
+                                   RIGHT(json_extract_path_text(variables, 'r'), 3) AS event_arrivalairportiatacode,
+                                   json_extract_path_text(variables, 'jt')          AS event_journeytype,
+                                   LEFT(json_extract_path_text(variables, 'dt'), 8) AS event_departuredate,
+                                   CASE
+                                       WHEN json_extract_path_text(variables, 'jt') = 'RT'
+                                           THEN
+                                           RIGHT(json_extract_path_text(variables, 'dt'), 8)
+                                       END                                          AS event_returndate,
+                                   json_extract_path_text(variables, 'tp')          AS event_totalPrice,
+                                   json_extract_path_text(variables, 'c')           AS event_currencycode,
+                                   json_extract_path_text(variables, 'tpu')         AS event_totalpriceusd,
+                                   json_extract_path_text(variables, 'emcid')       AS event_emcid,
+                                   json_extract_path_text(variables, 'se')          AS event_siteedition,
+                                   __createdat::TIMESTAMP                           AS event_timestamp,
+                                   __createdat ::DATE                               AS event_date
+                   FROM em_cmp_lib_tracking_001
+                   WHERE __createdat > current_date - 60
+                     AND __createdat < current_date
+                     AND UPPER(airline_code) IN ('FJ')
+                     AND event_action = 'open-booking-popup'
+                     and json_extract_path_text(variables, 'url') not like '%-dev.%'
+                     and json_extract_path_text(variables, 'url') not like '%-dev-%'
+                     and json_extract_path_text(variables, 'url') not like '%_dev.%'
+                     and json_extract_path_text(variables, 'url') not like '%-prepro.%'
+                     and json_extract_path_text(variables, 'url') not like '%_prepro.%'
+                     and json_extract_path_text(variables, 'url') not like '%.airtrfx.%'
+                     --AND json_extract_path_text(variables, 'emcid') :: VARCHAR(50) ~ '\\$[0-9]+(\\.[0-9][0-9])?'
+                     --AND json_extract_path_text(variables, 'tpu') not in ('n/a', '')
+                     --AND json_extract_path_text(variables, 'tpu') >= '0.0'
+                     --AND json_extract_path_text(variables, 'tpu') notnull
+
+                   GROUP BY event_airlineiatacode, event_category, event_action, event_departureairportiatacode,
+                            event_arrivalairportiatacode, event_journeytype, event_siteedition, event_departuredate,
+                            event_returndate, event_emcid, event_totalprice, event_currencycode, event_totalpriceusd,
+                            event_date, event_timestamp
+                  ) ET
+                      LEFT JOIN
+                      (
+                          SELECT DISTINCT airlineiatacode                            AS airlineiatacode,
+                                          emcid,
+                                          farenettimestamp::TIMESTAMP                AS farenettimestamp,
+                                          farenettimestamp::DATE                     AS farenetdate,
+                                          departureairportiatacode :: VARCHAR(3)     AS departureairportiatacode,
+                                          arrivalairportiatacode :: VARCHAR(3)       AS arrivalairportiatacode,
+                                          regexp_replace(departuredate, '[^0-9\.]+') AS departuredate,
+                                          regexp_replace(returndate, '[^0-9\.]+')    AS returndate,
+                                          siteedition,
+                                          totalpriceusd                              AS totalpriceusd,
+                                          CASE
+                                              WHEN journeytype = 'ROUND_TRIP'
+                                                  THEN 'RT'
+                                              WHEN journeytype = 'ONE_WAY'
+                                                  THEN 'OW'
+                                              ELSE 'Others' END                      AS journeytype
+                          FROM public.normalized_farenet_001
+                          WHERE __createdat > current_date - 61
+                            AND __createdat < current_date
+                            AND farenettimestamp::TIMESTAMP > current_date - 60
+                            AND farenettimestamp::TIMESTAMP <= current_date
+                            AND UPPER(airlineiatacode) = 'FJ'
+                            AND totalpriceusd > '0'
+                            AND emcid <> ''
+                          GROUP BY airlineiatacode, departureairportiatacode, arrivalairportiatacode,
+                                   journeytype, siteedition, departuredate, returndate,
+                                   emcid, farenettimestamp, farenetdate, totalpriceusd
+                      ) FN
+                      ON UPPER(ET.event_airlineiatacode) = UPPER(FN.airlineiatacode)
+                          AND ET.event_date = farenetdate
+                          AND ET.event_emcid = FN.emcid
+                          AND ET.event_departureairportiatacode = FN.departureairportiatacode
+                          AND ET.event_arrivalairportiatacode = FN.arrivalairportiatacode
+                          AND ET.event_journeytype = FN.journeytype
+                          AND ET.event_departuredate = FN.departuredate
+                          AND (ET.event_returndate = FN.returndate
+                              OR ET.event_returndate isnull
+                              OR ET.event_returndate in ('NULL', 'null')
+                             )
+                  ) ETjoinFN
+     ) KeepsFirstMatch
+WHERE row_num = '1'
