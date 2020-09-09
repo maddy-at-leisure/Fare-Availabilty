@@ -53,7 +53,7 @@ FROM (
                                    json_extract_path_text(variables, 'se')          AS event_siteedition,
                                    __createdat::TIMESTAMP                           AS event_timestamp,
                                    __createdat ::DATE                               AS event_date
-                   FROM em_cmp_lib_tracking_001
+                   FROM em_cmp_lib_tracking_001                                                                      --Data Source A
                    WHERE __createdat > current_date - 60
                      AND __createdat < current_date
                      AND UPPER(airline_code) IN ('FJ')
@@ -92,7 +92,7 @@ FROM (
                                               WHEN journeytype = 'ONE_WAY'
                                                   THEN 'OW'
                                               ELSE 'Others' END                      AS journeytype
-                          FROM public.normalized_farenet_001
+                          FROM public.normalized_farenet_001                                                                       --Data Source B
                           WHERE __createdat > current_date - 61
                             AND __createdat < current_date
                             AND farenettimestamp::TIMESTAMP > current_date - 60
