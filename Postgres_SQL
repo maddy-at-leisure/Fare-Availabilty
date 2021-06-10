@@ -15,6 +15,7 @@ FROM (
                 event_siteedition,
                 event_timestamp,
                 event_date,
+                --_id,
                 airlineiatacode,
                 departureairportiatacode,
                 arrivalairportiatacode,
@@ -53,11 +54,11 @@ FROM (
                                    json_extract_path_text(variables, 'se')          AS event_siteedition,
                                    __createdat::TIMESTAMP                           AS event_timestamp,
                                    __createdat ::DATE                               AS event_date
-                   FROM em_cmp_lib_tracking_001                                                                      --Data Source A
-                   WHERE __createdat > current_date - 60
+                   FROM em_cmp_lib_tracking_001
+                   WHERE __createdat >= current_date - 65
                      AND __createdat < current_date
-                     AND UPPER(airline_code) IN ('FJ')
-                     AND event_action = 'open-booking-popup'
+                     AND UPPER(airline_code) IN ('CX')
+                     --AND event_action = 'open-booking-popup'
                      and json_extract_path_text(variables, 'url') not like '%-dev.%'
                      and json_extract_path_text(variables, 'url') not like '%-dev-%'
                      and json_extract_path_text(variables, 'url') not like '%_dev.%'
@@ -65,8 +66,8 @@ FROM (
                      and json_extract_path_text(variables, 'url') not like '%_prepro.%'
                      and json_extract_path_text(variables, 'url') not like '%.airtrfx.%'
                      --AND json_extract_path_text(variables, 'emcid') :: VARCHAR(50) ~ '\\$[0-9]+(\\.[0-9][0-9])?'
-                     --AND json_extract_path_text(variables, 'tpu') not in ('n/a', '')
-                     --AND json_extract_path_text(variables, 'tpu') >= '0.0'
+                     --AND json_extract_path_text(variables, 'tpu') not in ('n/a', '')  --We need to compare only fares neccesary
+                     --AND json_extract_path_text(variables, 'tpu') > '0.0'
                      --AND json_extract_path_text(variables, 'tpu') notnull
 
                    GROUP BY event_airlineiatacode, event_category, event_action, event_departureairportiatacode,
@@ -76,7 +77,9 @@ FROM (
                   ) ET
                       LEFT JOIN
                       (
-                          SELECT DISTINCT airlineiatacode                            AS airlineiatacode,
+                          SELECT DISTINCT 
+--_id,
+                                          airlineiatacode                            AS airlineiatacode,
                                           emcid,
                                           farenettimestamp::TIMESTAMP                AS farenettimestamp,
                                           farenettimestamp::DATE                     AS farenetdate,
@@ -92,15 +95,16 @@ FROM (
                                               WHEN journeytype = 'ONE_WAY'
                                                   THEN 'OW'
                                               ELSE 'Others' END                      AS journeytype
-                          FROM public.normalized_farenet_001                                                                       --Data Source B
-                          WHERE __createdat > current_date - 61
+                          FROM public.normalized_farenet_001
+                          WHERE __createdat >= current_date - 66
                             AND __createdat < current_date
-                            AND farenettimestamp::TIMESTAMP > current_date - 60
+                            AND farenettimestamp::TIMESTAMP >= current_date - 65
                             AND farenettimestamp::TIMESTAMP <= current_date
-                            AND UPPER(airlineiatacode) = 'FJ'
+                            AND UPPER(airlineiatacode) = 'CX'
                             AND totalpriceusd > '0'
-                            AND emcid <> ''
-                          GROUP BY airlineiatacode, departureairportiatacode, arrivalairportiatacode,
+                          GROUP BY 
+--_id, 
+airlineiatacode, departureairportiatacode, arrivalairportiatacode,
                                    journeytype, siteedition, departuredate, returndate,
                                    emcid, farenettimestamp, farenetdate, totalpriceusd
                       ) FN
@@ -117,4 +121,5 @@ FROM (
                              )
                   ) ETjoinFN
      ) KeepsFirstMatch
-WHERE row_num = '1'
+WHERE time_diff>0
+AND row_num = '1'
